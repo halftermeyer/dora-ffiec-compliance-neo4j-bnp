@@ -2,15 +2,19 @@ GIthub Repository to reproduce experiments of the paper
 ## **GraphRAG: Leveraging Graph-Based Efficiency to Minimize Hallucinations in LLM-Driven RAG for Finance Data**
 
 
-# Example of usage
+# Retrieval augmented generation examples
 
-## Ask Dora, get contextualized answer
+## Ask Dora, get contextualized answer (Retrieval Augmented Generation)
 
 [![Ask DORA chat bot with context](https://img.youtube.com/vi/utAtu9tT5bE/default.jpg)](https://youtu.be/utAtu9tT5bE)
 
-## Check discrepancies between Dora and FFIEC regulations
+## Check discrepancies between Dora and FFIEC regulations (Retrieval Augmented Graph Relationship Generation)
 
 [![Ask DORA chat bot with context](https://img.youtube.com/vi/3fqo5DeZXXg/default.jpg)](https://youtu.be/3fqo5DeZXXg)
+
+## Find inner references in GDPR regulation (Retrieval Augmented Graph Relationship Generation)
+
+[![Ask DORA chat bot with context](https://img.youtube.com/vi/6q7a502ANjI/default.jpg)](https://youtu.be/6q7a502ANjI)
 
 # Ingestion was made using this *cypher* script
 
@@ -296,4 +300,164 @@ CALL apoc.ml.openai.chat([
 ],  $openai_api_key, {model:"gpt-3.5-turbo"}) yield value
 WITH value.choices[0].message.content AS contradictions
 RETURN contradictions
+```
+
+## GDPR Retrieval augmented graph generation queries
+
+
+### compute references
+
+```cypher
+"MATCH (n)
+WHERE n.references IS NULL
+CALL{
+WITH n
+WITH n, n.text_path + "\n----------\n" + n.text AS txt
+CALL apoc.ml.openai.chat([
+{role:"system", content:"GDPR regulation is parsed as a tree"},
+{role:"system", content:"I will provide you some chunks of text prefixed by their path from the root of the document"},
+{role:"system", content:"You mission is to produce a JSON array of references"},
+{role:"system", content:"A reference is another part of the GPDR regulation a given chunk mentions"},
+{role:"system", content:'Here is an example:
+
+Regulation gdpr
+Chapter II
+Article 9
+Paragraph 2
+Paragraph 1
+Point a
+----------
+the data subject has given explicit consent to the processing of those personal data for one or more specified purposes, except where Union or Member State law provide that the prohibition referred to in paragraph 1 may not be lifted by the data subject;
+
+should produce
+
+[{
+  "label": "Paragraph",
+  "regulation": "gdpr",
+  "chapter": "II",
+  "article": "9",
+  "paragraph": "1"
+}]
+
+Here another example:
+
+Regulation gdpr
+Chapter III
+Article 12
+Paragraph 1
+----------
+The controller shall take appropriate measures to provide any information referred to in Articles 13 and 14 and any communication under Articles 15 to 22 and 34 relating to processing to the data subject in a concise, transparent, intelligible and easily accessible form, using clear and plain language, in particular for any information addressed specifically to a child. The information shall be provided in writing, or by other means, including, where appropriate, by electronic means. When requested by the data subject, the information may be provided orally, provided that the identity of the data subject is proven by other means.
+
+should produce:
+
+[
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "13"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "14"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "15"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "16"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "17"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "18"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "19"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "20"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "21"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "22"
+  },
+  {
+    "label": "Article",
+    "regulation": "gdpr",
+    "chapter": "III",
+    "article": "34"
+  }
+]
+
+other example:
+
+Regulation gdpr
+Chapter I
+Article 3
+Paragraph 2
+----------
+This Regulation applies to the processing of personal data of data subjects who are in the Union by a controller or processor not established in the Union, where the processing activities are related to
+
+should produce no reference :
+
+[]
+
+'},
+{role:"system", content:"Note that everything in the json is lower case except the label"},
+{role:"system", content:"No reference in the chunk should produce []"},
+{role:"user", content:txt}
+],  $apiKey, {model: 'gpt-4'}) yield value
+SET n.references = value.choices[0].message.content
+} IN TRANSACTIONS OF 1 ROWS
+ON ERROR CONTINUE"
+```
+
+### Persist relationship
+
+```cypher
+"MATCH (n WHERE NOT n.references IS null)
+WHERE n.references <> "[]"
+CALL {
+WITH n
+WITH n, coalesce(apoc.convert.fromJsonList(n.references), []) AS refs
+UNWIND refs AS ref
+WITH n, apoc.text.replace(ref.label, " ", "") AS label, apoc.map.removeKeys(ref, ["label", "chapter"]) AS ref
+WITH n, label, ref, apoc.text.join([k IN KEYS(ref) | k+':"'+ref[k]+'"'], ',') AS map_text
+WHERE ref.regulation = "gdpr"
+CALL apoc.cypher.run("MATCH (cited:" + label + " {"+map_text+"}) RETURN cited AS cited", {ref:ref})
+YIELD value
+WITH n, ref, label, value.cited AS cited
+MERGE (n)-[:REFERS_TO]->(cited)
+} IN TRANSACTIONS OF 1 ROW
+ON ERROR CONTINUE"
 ```
