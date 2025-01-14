@@ -16,7 +16,7 @@ GIthub Repository to reproduce experiments of the paper
 
 [![Ask DORA chat bot with context](https://img.youtube.com/vi/6q7a502ANjI/default.jpg)](https://youtu.be/6q7a502ANjI)
 
-# Ingestion was made using this *cypher* script
+# Ingestion of DORA and FFIEC database was made using this *cypher* script
 
 A dump of the resulting database can be downlowded [here](https://drive.google.com/file/d/1zqc1LeKH__AngZQKYKZ7MuDgvSBspK1F/view?usp=sharing).
 
@@ -304,6 +304,8 @@ RETURN contradictions
 
 ## GDPR Retrieval augmented graph generation queries
 
+A dump of the GDPR knowledge graph can be downlowded [here](https://drive.google.com/file/d/10OIyNstnkkpJbvUxQ5kH-bbe0fL9jnXW/view?usp=sharing).
+It can be rebuilt using [this material](./GDPR_KG).
 
 ### compute references
 
