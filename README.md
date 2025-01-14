@@ -2,6 +2,15 @@ GIthub Repository to reproduce experiments of the paper
 ## **GraphRAG: Leveraging Graph-Based Efficiency to Minimize Hallucinations in LLM-Driven RAG for Finance Data**
 
 
+# Example of usage
+
+## Ask Dora, get contextualized answer
+
+[![Ask DORA chat bot with context](https://img.youtube.com/vi/utAtu9tT5bE/default.jpg)](https://youtu.be/utAtu9tT5bE)
+
+## Check discrepancies between Dora and FFIEC regulations
+
+[![Ask DORA chat bot with context](https://img.youtube.com/vi/3fqo5DeZXXg/default.jpg)](https://youtu.be/3fqo5DeZXXg)
 
 # Ingestion was made using this *cypher* script
 
