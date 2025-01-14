@@ -1,0 +1,239 @@
+name,description,query,id,parentId,isFolder
+GDPR,,,0,,true
+Ingestion,,,1,0,true
+🧹 clean,,MATCH (n) DETACH DELETE n,2,1,false
+Merge chunks in same treeElement,,"MATCH (c:Chunk)
+WITH c.label AS l, c.regulation AS r, c.chapter AS ch, c.article AS a, c.paragraph AS p, c.point AS pt, c.subpoint AS spt, c
+WITH l, r, ch, a, p, pt, spt, collect(c) AS chunks
+WHERE size(chunks) > 1
+CALL apoc.refactor.mergeNodes(chunks,{properties:""combine"", mergeRels:true})
+YIELD node
+RETURN count(*)",3,1,false
+Concat merged text chunks,,"MATCH (c:Chunk)
+WHERE apoc.meta.cypher.type(c.text) = ""LIST OF STRING""
+SET c.text = apoc.text.join(c.text, "" "") ",4,1,false
+🏷️ set labels,,"MATCH (c:Chunk)
+CALL {
+WITH c
+CALL apoc.create.setLabels( c, [ ""Chunk"", c.label ] )
+YIELD node
+REMOVE node.label
+} IN TRANSACTIONS OF 1000 rows",5,1,false
+reg-->chapter,,"MATCH (r:Regulation)
+MATCH (c:Chapter {regulation:r.regulation})
+MERGE (r)-[:CONTAINS]->(c)",6,1,false
+point-->subpoint,,"MATCH (sp:SubPoint)
+MATCH (p:Point)
+WHERE p.regulation = sp.regulation
+AND p.chapter = sp.chapter
+AND p.article = sp.article
+AND p.point = sp.point
+MERGE (p)-[:CONTAINS]->(sp)",7,1,false
+👀 chapter-->article,,"MATCH (a:Article)
+MATCH (ch:Chapter)
+WHERE ch.chapter = a.chapter
+AND ch.regulation = a.regulation
+MERGE (ch)-[:CONTAINS]->(a)",8,1,false
+article-->paragraph,,"MATCH (p:Paragraph)
+MATCH (a:Article)
+WHERE a.regulation = p.regulation
+AND a.chapter = p.chapter
+AND a.article = p.article
+MERGE (a)-[:CONTAINS]->(p)",9,1,false
+article-->point,,"MATCH (p:Point)
+WHERE p.paragraph IS null
+MATCH (a:Article)
+WHERE a.regulation = p.regulation
+AND a.chapter = p.chapter
+AND a.article = p.article
+MERGE (a)-[:CONTAINS]->(p)",10,1,false
+paragraph-->point,,"MATCH (p:Point)
+WHERE p.paragraph IS NOT null
+MATCH (para:Paragraph)
+WHERE para.regulation = p.regulation
+AND para.chapter = p.chapter
+AND para.article = p.article
+AND para.paragraph = p.paragraph
+MERGE (para)-[:CONTAINS]->(p)",11,1,false
+Text Embedding,,,12,0,true
+param apiKey,,":param apiKey=>""sk-...""",13,12,false
+👀 param embedding model,,":param model=>""text-embedding-3-small""",14,12,false
+🍀 Set Leaf Label,,"MATCH (n)
+WHERE NOT EXISTS {(n)-[:CONTAINS]->()}
+SET n:Leaf",15,12,false
+📖 contextualized text,,"MATCH (reg:Regulation)((i)-[:CONTAINS]->())*(l)
+SET l.contextualized_text = apoc.text.join([c IN i+[l] | labels(c)[0] + "" "" + apoc.any.property(c, toLower(labels(c)[0])) + '\n'+ c.text], '\n')",16,12,false
+🐾🐾 Set text_path,,"MATCH (reg:Regulation)((i)-[:CONTAINS]->())*(l)
+SET l.text_path = apoc.text.join([c IN i + [l] | labels(c)[0] + "" "" + apoc.any.property(c, toLower(labels(c)[0]))], '\n')",17,12,false
+👀 ፨ embed contextualized text,,"MATCH (n)
+WITH collect (n) AS ns, collect(n.contextualized_text) AS texts
+CALL apoc.ml.openai.embedding(texts, $apiKey, {model:$model}) yield index, text, embedding
+WITH ns, collect(embedding) AS embs
+WITH apoc.coll.zip(ns, embs) AS chunks_embs
+UNWIND chunks_embs AS chunk_emb
+WITH chunk_emb[0] AS chunk, chunk_emb[1] AS emb
+SET chunk.context_text_embedding = emb",18,12,false
+👀 create vector index,,"CREATE VECTOR INDEX `context-text-embeddings`
+FOR (n: Chunk) ON (n.context_text_embedding)
+OPTIONS {indexConfig: {
+ `vector.dimensions`: 1536,
+ `vector.similarity_function`: 'cosine'
+}}",19,12,false
+👀 What applies to children ? [subsymbolic vector-only RAG],,"WITH ""What applies to children ?"" AS question
+CALL apoc.ml.openai.embedding([question], $apiKey, {model:$model})
+YIELD embedding
+CALL db.index.vector.queryNodes('context-text-embeddings', 10, embedding)
+YIELD node AS matchingChunk, score
+RETURN matchingChunk, matchingChunk.contextualized_text, score",20,12,false
+Compute references,,,21,0,true
+👀 compute references [LLM-augmented KG],,"MATCH (n)
+WHERE n.references IS NULL
+CALL{
+WITH n
+WITH n, n.text_path + ""\n----------\n"" + n.text AS txt
+CALL apoc.ml.openai.chat([
+{role:""system"", content:""GDPR regulation is parsed as a tree""},
+{role:""system"", content:""I will provide you some chunks of text prefixed by their path from the root of the document""},
+{role:""system"", content:""You mission is to produce a JSON array of references""},
+{role:""system"", content:""A reference is another part of the GPDR regulation a given chunk mentions""},
+{role:""system"", content:'Here is an example:
+
+Regulation gdpr
+Chapter II
+Article 9
+Paragraph 2
+Paragraph 1
+Point a
+----------
+the data subject has given explicit consent to the processing of those personal data for one or more specified purposes, except where Union or Member State law provide that the prohibition referred to in paragraph 1 may not be lifted by the data subject;
+
+should produce
+
+[{
+  ""label"": ""Paragraph"",
+  ""regulation"": ""gdpr"",
+  ""chapter"": ""II"",
+  ""article"": ""9"",
+  ""paragraph"": ""1""
+}]
+
+Here another example:
+
+Regulation gdpr
+Chapter III
+Article 12
+Paragraph 1
+----------
+The controller shall take appropriate measures to provide any information referred to in Articles 13 and 14 and any communication under Articles 15 to 22 and 34 relating to processing to the data subject in a concise, transparent, intelligible and easily accessible form, using clear and plain language, in particular for any information addressed specifically to a child. The information shall be provided in writing, or by other means, including, where appropriate, by electronic means. When requested by the data subject, the information may be provided orally, provided that the identity of the data subject is proven by other means.
+
+should produce:
+
+[
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""13""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""14""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""15""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""16""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""17""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""18""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""19""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""20""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""21""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""22""
+  },
+  {
+    ""label"": ""Article"",
+    ""regulation"": ""gdpr"",
+    ""chapter"": ""III"",
+    ""article"": ""34""
+  }
+]
+
+other example:
+
+Regulation gdpr
+Chapter I
+Article 3
+Paragraph 2
+----------
+This Regulation applies to the processing of personal data of data subjects who are in the Union by a controller or processor not established in the Union, where the processing activities are related to
+
+should produce no reference :
+
+[]
+
+'},
+{role:""system"", content:""Note that everything in the json is lower case except the label""},
+{role:""system"", content:""No reference in the chunk should produce []""},
+{role:""user"", content:txt}
+],  $apiKey, {model: 'gpt-4'}) yield value
+SET n.references = value.choices[0].message.content
+} IN TRANSACTIONS OF 1 ROWS
+ON ERROR CONTINUE",22,21,false
+👀 Create citations relationships,,"MATCH (n WHERE NOT n.references IS null)
+WHERE n.references <> ""[]""
+CALL {
+WITH n
+WITH n, coalesce(apoc.convert.fromJsonList(n.references), []) AS refs
+UNWIND refs AS ref
+WITH n, apoc.text.replace(ref.label, "" "", """") AS label, apoc.map.removeKeys(ref, [""label"", ""chapter""]) AS ref
+WITH n, label, ref, apoc.text.join([k IN KEYS(ref) | k+':""'+ref[k]+'""'], ',') AS map_text
+WHERE ref.regulation = ""gdpr""
+CALL apoc.cypher.run(""MATCH (cited:"" + label + "" {""+map_text+""}) RETURN cited AS cited"", {ref:ref})
+YIELD value
+WITH n, ref, label, value.cited AS cited
+MERGE (n)-[:REFERS_TO]->(cited)
+} IN TRANSACTIONS OF 1 ROW
+ON ERROR CONTINUE",23,21,false
+👀 check REFERS_TO,,"// in article 12 paragraph 1 
+// Union or Member State law to which the data controller or processor is subject may restrict by way of a legislative measure the scope of the obligations and rights provided for in **** Articles 12 to 22 and Article 34 ****, as well as Article 5 in so far as its provisions correspond to the rights and obligations provided for in Articles 12 to 22, when such a restriction respects the essence of the fundamental rights and freedoms and is a necessary and proportionate measure in a democratic society to safeguard
+MATCH (a:Paragraph {article:""12"", paragraph:1})-[r:REFERS_TO]->(ref) 
+RETURN a, r, ref",24,21,false
