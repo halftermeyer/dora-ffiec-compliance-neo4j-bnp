@@ -305,7 +305,7 @@ RETURN contradictions
 ## GDPR Retrieval augmented graph generation queries
 
 A dump of the GDPR knowledge graph can be downlowded [here](https://drive.google.com/file/d/10OIyNstnkkpJbvUxQ5kH-bbe0fL9jnXW/view?usp=sharing).
-It can be rebuilt using [this material](./GDPR_KG).
+It can be rebuilt using [this material](./gdpr_KG).
 
 ### compute references
 
