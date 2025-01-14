@@ -5,6 +5,8 @@ GIthub Repository to reproduce experiments of the paper
 
 # Ingestion was made using this *cypher* script
 
+A dump of the resulting database can be downlowded [here](https://drive.google.com/file/d/1zqc1LeKH__AngZQKYKZ7MuDgvSBspK1F/view?usp=sharing).
+
 ## Cleaning database
 
 ```cypher
