@@ -1,10 +1,11 @@
-GIthub Repository to reproduce experiments of the paper 
+GitHub Repository to reproduce experiments and demo of the paper 
 ## **GraphRAG: Leveraging Graph-Based Efficiency to Minimize Hallucinations in LLM-Driven RAG for Finance Data**
+Presented at COLING 2025, on Generative AI & Knowledge Graph Workshop
 
 
 # Retrieval augmented generation examples
 
-## Ask Dora, get contextualized answer (Retrieval Augmented Generation)
+## Ask Dora, get contextualized answers (Retrieval Augmented Generation)
 
 [![Ask DORA chat bot with context](https://img.youtube.com/vi/utAtu9tT5bE/default.jpg)](https://youtu.be/utAtu9tT5bE)
 
